@@ -44,10 +44,31 @@ class BeliefRevisionAgent:
         return temp_agent.entails("False")  # Check if contradiction occurs
 
     def contract(self, belief):
-        # Basic contraction: remove beliefs that cause direct inconsistency
-        conflicting_beliefs = {b for b in self.belief_base if b == self.negate(belief)}
-        for b in conflicting_beliefs:
-            self.remove_belief(b)
+        # Advanced contraction 
+        candidates = list(self.belief_base)
+
+        # First try removing one belief at a time
+        for b in candidates:
+            temp_base = self.belief_base.copy()
+            temp_base.remove(b)
+            temp_agent = BeliefRevisionAgent()
+            temp_agent.belief_base = temp_base
+            if not temp_agent.entails(belief):
+                self.remove_belief(b)
+                return  # stop after first success
+
+        # Then try removing two beliefs at a time
+        for i in range(len(candidates)):
+            for j in range(i+1, len(candidates)):
+                temp_base = self.belief_base.copy()
+                temp_base.remove(candidates[i])
+                temp_base.remove(candidates[j])
+                temp_agent = BeliefRevisionAgent()
+                temp_agent.belief_base = temp_base
+                if not temp_agent.entails(belief):
+                    self.remove_belief(candidates[i])
+                    self.remove_belief(candidates[j])
+                    return  # stop after first success
 
     def negate(self, belief):
         # Negate a belief
@@ -88,7 +109,6 @@ class BeliefRevisionAgent:
                     new_clause = (ci.union(cj)) - {di, dj}
                     resolvents.add(frozenset(new_clause))
         return resolvents
-    
 
 if __name__ == "__main__":
     print("Belief Revision Agent - AGM Postulates Test")
@@ -130,4 +150,3 @@ if __name__ == "__main__":
     agent5.revise("p")
 
     print("\nExtensionality Postulate: bases should be the same:", agent4.belief_base == agent5.belief_base)
-
