@@ -1,6 +1,4 @@
-# Belief Revision Agent 
-
-
+# Belief Revision Agent (with CNF conversion + Resolution)
 
 class BeliefRevisionAgent:
     def __init__(self):
@@ -98,3 +96,21 @@ class BeliefRevisionAgent:
                     resolvents.add(frozenset(new_clause))
         return resolvents
 
+    def print_beliefs(self):
+        # Print the current belief base
+        print("Current Belief Base:", self.belief_base)
+
+# Example usage
+if __name__ == "__main__":
+    agent = BeliefRevisionAgent()
+
+    agent.add_belief("A")
+    agent.add_belief("A -> B")
+    agent.print_beliefs()
+
+    print("Entails B?", agent.entails("B"))
+
+    agent.revise("~A")
+    agent.print_beliefs()
+
+    print("Entails A?", agent.entails("A"))
