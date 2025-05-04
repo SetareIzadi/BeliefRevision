@@ -5,13 +5,47 @@ class BeliefRevisionAgent:
         self.belief_base = set()
 
     def add_belief(self, belief):
-        self.belief_base.add(belief)
+        self.belief_base.add(self._clean(belief))
 
     def remove_belief(self, belief):
-        if belief in self.belief_base:
-            self.belief_base.remove(belief)
+        self.belief_base.discard(self._clean(belief))
+
+    def revise(self, new_belief):
+        new_belief = self._clean(new_belief)
+        if self._is_inconsistent_with(new_belief):
+            self._contract(self.negate(new_belief))
+        self.add_belief(new_belief)
+
+    def _is_inconsistent_with(self, new_belief):
+        temp = BeliefRevisionAgent()
+        temp.belief_base = self.belief_base.copy()
+        temp.add_belief(new_belief)
+        return temp.entails("False")
+
+    def _contract(self, belief):
+        belief = self._clean(belief)
+        candidates = list(self.belief_base)
+        for b in candidates:
+            temp = self.belief_base.copy()
+            temp.discard(b)
+            temp_agent = BeliefRevisionAgent()
+            temp_agent.belief_base = temp
+            if not temp_agent.entails(belief):
+                self.belief_base = temp
+                return
+        for i in range(len(candidates)):
+            for j in range(i + 1, len(candidates)):
+                temp = self.belief_base.copy()
+                temp.discard(candidates[i])
+                temp.discard(candidates[j])
+                temp_agent = BeliefRevisionAgent()
+                temp_agent.belief_base = temp
+                if not temp_agent.entails(belief):
+                    self.belief_base = temp
+                    return
 
     def entails(self, query):
+        query = self._clean(query)
         clauses = set()
         for belief in self.belief_base:
             clauses.update(self.to_cnf(belief))
@@ -20,84 +54,45 @@ class BeliefRevisionAgent:
         new = set()
         while True:
             n = len(clauses)
-            pairs = [(list(clauses)[i], list(clauses)[j]) for i in range(n) for j in range(i+1, n)]
-            for (ci, cj) in pairs:
-                resolvents = self.resolve(ci, cj)
-                if frozenset() in resolvents:
-                    return True  # contradiction found
-                new.update(resolvents)
+            clause_list = list(clauses)
+            for i in range(n):
+                for j in range(i + 1, n):
+                    resolvents = self.resolve(clause_list[i], clause_list[j])
+                    if frozenset() in resolvents:
+                        return True  # contradiction found
+                    new.update(resolvents)
             if new.issubset(clauses):
-                return False  # no contradiction
+                return False
             clauses.update(new)
 
-    def revise(self, new_belief):
-        # Revise the belief base by incorporating the new belief
-        if self.is_inconsistent_with(new_belief):
-            self.contract(self.negate(new_belief))
-        self.add_belief(new_belief)
-
-    def is_inconsistent_with(self, new_belief):
-        # Check if adding new_belief causes inconsistency
-        temp_agent = BeliefRevisionAgent()
-        temp_agent.belief_base = self.belief_base.copy()
-        temp_agent.add_belief(new_belief)
-        return temp_agent.entails("False")  # Check if contradiction occurs
-
-    def contract(self, belief):
-        # Advanced contraction 
-        candidates = list(self.belief_base)
-
-        # First try removing one belief at a time
-        for b in candidates:
-            temp_base = self.belief_base.copy()
-            temp_base.remove(b)
-            temp_agent = BeliefRevisionAgent()
-            temp_agent.belief_base = temp_base
-            if not temp_agent.entails(belief):
-                self.remove_belief(b)
-                return  # stop after first success
-
-        # Then try removing two beliefs at a time
-        for i in range(len(candidates)):
-            for j in range(i+1, len(candidates)):
-                temp_base = self.belief_base.copy()
-                temp_base.remove(candidates[i])
-                temp_base.remove(candidates[j])
-                temp_agent = BeliefRevisionAgent()
-                temp_agent.belief_base = temp_base
-                if not temp_agent.entails(belief):
-                    self.remove_belief(candidates[i])
-                    self.remove_belief(candidates[j])
-                    return  # stop after first success
-
     def negate(self, belief):
-        # Negate a belief
-        belief = belief.strip()
-        if belief.startswith('~'):
-            return belief[1:]
-        else:
-            return '~' + belief
+        belief = self._clean(belief)
+        return belief[1:] if belief.startswith("~") else "~" + belief
 
     def to_cnf(self, belief):
-        # Very simple CNF conversion
-        belief = belief.replace(' ', '')
-        if '->' in belief:
-            left, right = belief.split('->')
+        belief = self._clean(belief)
+        # Implication: A -> B becomes ~A | B
+        if "->" in belief:
+            left, right = belief.split("->", 1)
             return [frozenset([self.negate(left), right])]
-        elif belief.startswith('~(') and belief.endswith(')'):
+        # Negated conjunction: ~(A & B) becomes ~A | ~B
+        elif belief.startswith("~(") and belief.endswith(")"):
             inner = belief[2:-1]
-            if '&' in inner:
-                parts = inner.split('&')
-                return [frozenset([self.negate(parts[0])]), frozenset([self.negate(parts[1])])]
-            elif '|' in inner:
-                parts = inner.split('|')
-                return [frozenset([self.negate(parts[0]), self.negate(parts[1])])]
-        elif '&' in belief:
-            parts = belief.split('&')
-            return [frozenset([parts[0]]), frozenset([parts[1]])]
-        elif '|' in belief:
-            parts = belief.split('|')
-            return [frozenset(parts)]
+            if "&" in inner:
+                a, b = inner.split("&", 1)
+                return [frozenset([self.negate(a)]), frozenset([self.negate(b)])]
+            elif "|" in inner:
+                a, b = inner.split("|", 1)
+                return [frozenset([self.negate(a), self.negate(b)])]
+        # Conjunction: A & B becomes {A}, {B}
+        elif "&" in belief:
+            a, b = belief.split("&", 1)
+            return [frozenset([a]), frozenset([b])]
+        # Disjunction: A | B becomes {A, B}
+        elif "|" in belief:
+            a, b = belief.split("|", 1)
+            return [frozenset([a, b])]
+        # Atomic
         else:
             return [frozenset([belief])]
 
@@ -106,47 +101,47 @@ class BeliefRevisionAgent:
         for di in ci:
             for dj in cj:
                 if di == self.negate(dj):
-                    new_clause = (ci.union(cj)) - {di, dj}
+                    new_clause = ci.union(cj) - {di, dj}
                     resolvents.add(frozenset(new_clause))
         return resolvents
 
+    def _clean(self, belief):
+        return belief.replace(" ", "").strip()
+
+# Testing the agent with AGM Postulates
 if __name__ == "__main__":
-    print("Belief Revision Agent - AGM Postulates Test")
+    print("Belief Revision Agent - AGM Postulates Test\n")
 
     agent = BeliefRevisionAgent()
-    
-    # Initial beliefs
     agent.add_belief("p")
     agent.add_belief("p -> q")
-    print("\nInitial belief base:", agent.belief_base)
+    print("Initial belief base:", agent.belief_base)
 
-    # Success Postulate Test: revising with q
+    # Success Postulate
     agent.revise("q")
-    print("\nAfter revising with 'q' (Success Postulate):", agent.belief_base)
+    print("\nAfter revising with 'q' (Success):", agent.belief_base)
+    print("Inclusion: Does it include 'q'?", "q" in agent.belief_base)
 
-    # Inclusion Postulate Test
-    print("\nInclusion Postulate: 'q' should be included:", "q" in agent.belief_base)
-
-    # Vacuity Postulate Test
+    # Vacuity
     agent2 = BeliefRevisionAgent()
     agent2.add_belief("p")
-    print("\nBelief base before revising with 'p' (Vacuity):", agent2.belief_base)
+    print("\nBefore revising with 'p' (Vacuity):", agent2.belief_base)
     agent2.revise("p")
-    print("Belief base after revising with 'p' (Vacuity):", agent2.belief_base)
+    print("After revising with 'p' (Vacuity):", agent2.belief_base)
 
-    # Consistency Postulate Test
+    # Consistency
     agent3 = BeliefRevisionAgent()
     agent3.add_belief("p")
     agent3.revise("r")
-    print("\nBelief base after revising with 'r' (Consistency):", agent3.belief_base)
+    print("\nAfter revising with 'r' (Consistency):", agent3.belief_base)
 
-    # Extensionality Postulate Test
+    # Extensionality
     agent4 = BeliefRevisionAgent()
     agent4.add_belief("p")
     agent4.revise("p")
-    
+
     agent5 = BeliefRevisionAgent()
     agent5.add_belief("p")
     agent5.revise("p")
 
-    print("\nExtensionality Postulate: bases should be the same:", agent4.belief_base == agent5.belief_base)
+    print("\nExtensionality: Bases equal?", agent4.belief_base == agent5.belief_base)
